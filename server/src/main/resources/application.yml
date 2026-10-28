@@ -1,0 +1,86 @@
+server:
+  port: ${PORT:8080}
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: careerpilot-server
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:careerpilot_db}}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 300000
+      connection-timeout: 20000
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+app:
+  storage:
+    resumes-dir: ${RESUMES_STORAGE_DIR:./storage/resumes}
+  jwt:
+    secret: ${JWT_SECRET:careerpilot-dev-jwt-secret-key-must-be-at-least-256-bits-long-for-hmac-sha256}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+    issuer: careerpilot-ai
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://localhost:3000}
+    allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+    allowed-headers: "*"
+    allow-credentials: true
+    max-age: 3600
+  ai:
+    enabled: ${AI_ENABLED:false}
+    provider: ${AI_PROVIDER:gemini}
+    api-key: ${AI_API_KEY:${GEMINI_API_KEY:}}
+    gemini-api-key: ${GEMINI_API_KEY:}
+    model: ${AI_MODEL:gemini-3.8-flash}
+    fallback-model: ${AI_FALLBACK_MODEL:}
+    base-url: ${AI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
+    connect-timeout-ms: ${AI_CONNECT_TIMEOUT_MS:10000}
+    read-timeout-ms: ${AI_READ_TIMEOUT_MS:30000}
+    rate-limit-per-minute: ${AI_RATE_LIMIT_PER_MINUTE:5}
+    max-retries: ${AI_MAX_RETRIES:3}
+    retry-initial-backoff-ms: ${AI_RETRY_INITIAL_BACKOFF_MS:1000}
+    retry-max-backoff-ms: ${AI_RETRY_MAX_BACKOFF_MS:8000}
+
