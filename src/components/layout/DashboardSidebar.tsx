@@ -6,7 +6,6 @@ import {
   Briefcase,
   FileText,
   LogOut,
-  Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
@@ -89,21 +88,6 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({ onItemClick 
               </NavLink>
             ))}
           </nav>
-        </div>
-
-        {/* Pro Plan Feature Teaser */}
-        <div className="rounded-xl border border-indigo-500/20 bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent p-4">
-          <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 mb-2">
-            <Sparkles className="h-4 w-4" />
-            <span className="text-xs font-bold uppercase tracking-wider">AI Copilot Pro</span>
-          </div>
-          <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-            Automatic resume keyword tailoring for high ATS pass-rates.
-          </p>
-          <div className="w-full bg-border rounded-full h-1.5 overflow-hidden mb-2">
-            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 h-full w-4/5 rounded-full" />
-          </div>
-          <p className="text-[11px] text-muted-foreground">80% weekly application goal reached</p>
         </div>
       </div>
 

@@ -4,6 +4,7 @@ import com.careerpilot.exception.AiProviderUnavailableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -12,13 +13,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class OpenAiCompatibleProviderTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final RestClient restClient = RestClient.builder()
+            .requestFactory(new SimpleClientHttpRequestFactory())
+            .build();
 
     @Test
     @DisplayName("isConfigured returns false when enabled is false")
     void isConfigured_Disabled_ReturnsFalse() {
         OpenAiCompatibleProvider provider = new OpenAiCompatibleProvider(
                 false, "openai", "sk-valid-key", "gpt-4o-mini", "https://api.openai.com/v1",
-                RestClient.builder().build(), objectMapper
+                restClient, objectMapper
         );
 
         assertThat(provider.isConfigured()).isFalse();
@@ -29,7 +33,7 @@ class OpenAiCompatibleProviderTest {
     void isConfigured_BlankKey_ReturnsFalse() {
         OpenAiCompatibleProvider provider = new OpenAiCompatibleProvider(
                 true, "openai", "   ", "gpt-4o-mini", "https://api.openai.com/v1",
-                RestClient.builder().build(), objectMapper
+                restClient, objectMapper
         );
 
         assertThat(provider.isConfigured()).isFalse();
@@ -40,7 +44,7 @@ class OpenAiCompatibleProviderTest {
     void isConfigured_EnabledWithKey_ReturnsTrue() {
         OpenAiCompatibleProvider provider = new OpenAiCompatibleProvider(
                 true, "openai", "sk-valid-key", "gpt-4o-mini", "https://api.openai.com/v1",
-                RestClient.builder().build(), objectMapper
+                restClient, objectMapper
         );
 
         assertThat(provider.isConfigured()).isTrue();
@@ -52,7 +56,7 @@ class OpenAiCompatibleProviderTest {
     void generateImprovement_Disabled_ThrowsException() {
         OpenAiCompatibleProvider provider = new OpenAiCompatibleProvider(
                 false, "openai", "sk-key", "gpt-4o-mini", "https://api.openai.com/v1",
-                RestClient.builder().build(), objectMapper
+                restClient, objectMapper
         );
 
         assertThatThrownBy(() -> provider.generateImprovement("resume text", "job description", "Backend Engineer"))
@@ -65,7 +69,7 @@ class OpenAiCompatibleProviderTest {
     void generateImprovement_BlankKey_ThrowsException() {
         OpenAiCompatibleProvider provider = new OpenAiCompatibleProvider(
                 true, "openai", "", "gpt-4o-mini", "https://api.openai.com/v1",
-                RestClient.builder().build(), objectMapper
+                restClient, objectMapper
         );
 
         assertThatThrownBy(() -> provider.generateImprovement("resume text", "job description", "Backend Engineer"))

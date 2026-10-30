@@ -22,7 +22,7 @@ class AiProviderConfigTest {
                 "gemini",
                 "AIzaSyKey",
                 "",
-                "gemini-2.5-flash",
+                "gemini-3.8-flash",
                 "",
                 "",
                 10000,
@@ -35,6 +35,7 @@ class AiProviderConfigTest {
 
         assertThat(provider).isInstanceOf(GeminiAiProvider.class);
         assertThat(provider.getProviderName()).isEqualTo("gemini");
+        assertThat(((GeminiAiProvider) provider).getModel()).isEqualTo("gemini-3.8-flash");
         assertThat(provider.isConfigured()).isTrue();
     }
 
@@ -46,7 +47,7 @@ class AiProviderConfigTest {
                 "gemini",
                 "AIzaSyKey",
                 "",
-                "gemini-2.5-flash",
+                "gemini-3.8-flash",
                 "gemini-2.0-flash",
                 "",
                 10000,
@@ -59,7 +60,7 @@ class AiProviderConfigTest {
 
         assertThat(provider).isInstanceOf(GeminiAiProvider.class);
         GeminiAiProvider gemini = (GeminiAiProvider) provider;
-        assertThat(gemini.getModel()).isEqualTo("gemini-2.5-flash");
+        assertThat(gemini.getModel()).isEqualTo("gemini-3.8-flash");
         assertThat(gemini.getFallbackModel()).contains("gemini-2.0-flash");
     }
 
@@ -71,7 +72,7 @@ class AiProviderConfigTest {
                 "gemini",
                 "",
                 "AIzaSyFromGeminiEnv",
-                "gemini-2.5-flash",
+                "gemini-3.8-flash",
                 "",
                 "",
                 10000,
@@ -94,7 +95,7 @@ class AiProviderConfigTest {
                 "gemini",
                 "sk-dummy-openai-key",
                 "AIzaSySpecificGeminiKey",
-                "gemini-2.5-flash",
+                "gemini-3.8-flash",
                 "",
                 "",
                 10000,
@@ -130,6 +131,7 @@ class AiProviderConfigTest {
 
         assertThat(provider).isInstanceOf(GeminiAiProvider.class);
         assertThat(provider.getProviderName()).isEqualTo("gemini");
+        assertThat(((GeminiAiProvider) provider).getModel()).isEqualTo("gemini-3.8-flash");
         assertThat(provider.isConfigured()).isTrue();
     }
 
@@ -141,7 +143,7 @@ class AiProviderConfigTest {
                 "gemini",
                 "AIzaSyKey",
                 "",
-                "gemini-2.5-flash",
+                "gemini-3.8-flash",
                 "",
                 "",
                 10000,
@@ -163,7 +165,7 @@ class AiProviderConfigTest {
                 "gemini",
                 "   ",
                 "",
-                "gemini-2.5-flash",
+                "gemini-3.8-flash",
                 "",
                 "",
                 10000,

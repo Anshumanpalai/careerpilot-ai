@@ -10,8 +10,12 @@ export type CreateApplicationPayload = Omit<JobApplication, "id" | "createdAt" |
 export type UpdateApplicationPayload = Partial<CreateApplicationPayload>;
 
 class ApplicationsService {
-  public async getApplications(filter?: ApplicationFilter): Promise<JobApplication[]> {
+  public async getApplications(
+    filter?: ApplicationFilter,
+    options?: { signal?: AbortSignal }
+  ): Promise<JobApplication[]> {
     return await apiClient.get<JobApplication[]>("/applications", {
+      signal: options?.signal,
       params: {
         query: filter?.query && filter.query.trim() ? filter.query.trim() : undefined,
         status: filter?.status && filter.status !== "ALL" ? filter.status : undefined,

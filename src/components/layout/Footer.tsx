@@ -1,6 +1,8 @@
 import React from "react";
 import { Compass, Heart } from "lucide-react";
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 export const Footer: React.FC = () => {
   return (
     <footer className="border-t border-border bg-card/60 text-muted-foreground mt-auto">
@@ -15,8 +17,7 @@ export const Footer: React.FC = () => {
               <span className="text-base font-bold text-foreground">CareerPilot AI</span>
             </div>
             <p className="text-sm max-w-sm leading-relaxed text-muted-foreground">
-              Empowering engineers and knowledge workers to supercharge their job search with
-              algorithmic resume targeting, intelligent interview prep, and high-velocity application tracking.
+              Algorithmic resume targeting, keyword coverage analysis, and high-velocity job application pipeline tracking for tech professionals.
             </p>
             <div className="flex items-center gap-4 pt-2">
               <a
@@ -59,40 +60,40 @@ export const Footer: React.FC = () => {
           <div className="space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">Platform</h4>
             <ul className="space-y-2 text-sm">
-              <li><a href="#features" className="hover:text-foreground transition-colors">ATS Resume Matcher</a></li>
-              <li><a href="#features" className="hover:text-foreground transition-colors">Pipeline Kanban</a></li>
-              <li><a href="#features" className="hover:text-foreground transition-colors">Cover Letter AI</a></li>
-              <li><a href="#features" className="hover:text-foreground transition-colors">Interview Flashcards</a></li>
+              <li><a href="#resume-engine" className="hover:text-foreground transition-colors">ATS Keyword Scanner</a></li>
+              <li><a href="#features" className="hover:text-foreground transition-colors">Application Pipeline</a></li>
+              <li><a href="#resume-engine" className="hover:text-foreground transition-colors">AI Resume Tailoring</a></li>
+              <li><a href="#resume-engine" className="hover:text-foreground transition-colors">Resume Versions & PDF</a></li>
             </ul>
           </div>
 
-          {/* Column 2: Resources */}
+          {/* Column 2: Architecture & Workflow */}
           <div className="space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">Resources</h4>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">Workflow</h4>
             <ul className="space-y-2 text-sm">
-              <li><a href="#how-it-works" className="hover:text-foreground transition-colors">Career Guide 2026</a></li>
-              <li><a href="#resume-engine" className="hover:text-foreground transition-colors">Salary Benchmarks</a></li>
-              <li><span className="text-muted-foreground/80 cursor-pointer hover:text-foreground">System Status: All Systems Operational</span></li>
-              <li><span className="text-muted-foreground/80 cursor-pointer hover:text-foreground">API Documentation</span></li>
+              <li><a href="#how-it-works" className="hover:text-foreground transition-colors">4-Step Job Search Loop</a></li>
+              <li><a href="#pricing" className="hover:text-foreground transition-colors">Open Beta Access</a></li>
+              <li><span className="text-muted-foreground/80">Spring Boot 3.4 & React 19</span></li>
+              <li><span className="text-muted-foreground/80">Gemini 3.8 Flash Engine</span></li>
             </ul>
           </div>
 
-          {/* Column 3: Legal & Trust */}
+          {/* Column 3: Trust & Privacy */}
           <div className="space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">Trust & Security</h4>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">Trust & Privacy</h4>
             <ul className="space-y-2 text-sm">
-              <li><span className="hover:text-foreground transition-colors cursor-pointer">Privacy Policy</span></li>
-              <li><span className="hover:text-foreground transition-colors cursor-pointer">Terms of Service</span></li>
-              <li><span className="text-muted-foreground/80">SOC2 Type II Ready</span></li>
-              <li><span className="text-muted-foreground/80">Zero Data Training</span></li>
+              <li><span className="text-muted-foreground/90">Explicit AI Consent Required</span></li>
+              <li><span className="text-muted-foreground/90">Zero Data Selling Policy</span></li>
+              <li><span className="text-muted-foreground/90">Isolated User Schemas</span></li>
+              <li><span className="text-muted-foreground/90">Self-Hostable Core</span></li>
             </ul>
           </div>
         </div>
 
         <div className="border-t border-border mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between text-xs gap-4">
-          <p>© {new Date().getFullYear()} CareerPilot AI Inc. All rights reserved.</p>
+          <p>© {CURRENT_YEAR} CareerPilot AI. All rights reserved.</p>
           <p className="flex items-center gap-1 text-muted-foreground">
-            Crafted with <Heart className="h-3 w-3 text-rose-500 fill-rose-500" /> for ambitious career builders.
+            Built with <Heart className="h-3 w-3 text-rose-500 fill-rose-500" /> for ambitious tech job seekers.
           </p>
         </div>
       </div>

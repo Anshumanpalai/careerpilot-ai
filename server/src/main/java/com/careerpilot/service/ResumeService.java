@@ -135,6 +135,15 @@ public class ResumeService {
         return ResumeAnalysisResponse.fromEntity(resume);
     }
 
+    public ResumeResponse renameResume(UUID userId, UUID resumeId, String newFilename) {
+        Resume resume = resumeRepository.findByIdAndUserId(resumeId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Resume", "id", resumeId));
+
+        resume.setOriginalFilename(newFilename.strip());
+        Resume saved = resumeRepository.save(resume);
+        return ResumeResponse.fromEntity(saved);
+    }
+
     public record ResumeDownload(
             Resource resource,
             String originalFilename,

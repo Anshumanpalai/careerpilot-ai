@@ -21,6 +21,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
@@ -47,7 +48,7 @@ class GeminiAiProviderTest {
                   "finishReason": "STOP"
                 }
               ],
-              "modelVersion": "gemini-2.5-flash"
+              "modelVersion": "gemini-3.8-flash"
             }
             """;
 
@@ -98,7 +99,7 @@ class GeminiAiProviderTest {
     @DisplayName("isConfigured returns false when enabled is false")
     void isConfigured_Disabled_ReturnsFalse() {
         GeminiAiProvider provider = new GeminiAiProvider(
-                false, "AIzaSyTestKey", "gemini-2.5-flash", null, GeminiAiProvider.DEFAULT_BASE_URL,
+                false, "AIzaSyTestKey", "gemini-3.8-flash", null, GeminiAiProvider.DEFAULT_BASE_URL,
                 restClientBuilder.build(), objectMapper, 2, 10L, 50L, testSleeper
         );
 
@@ -110,7 +111,7 @@ class GeminiAiProviderTest {
     @DisplayName("isConfigured returns false when API key is blank")
     void isConfigured_BlankKey_ReturnsFalse() {
         GeminiAiProvider provider = new GeminiAiProvider(
-                true, "   ", "gemini-2.5-flash", null, GeminiAiProvider.DEFAULT_BASE_URL,
+                true, "   ", "gemini-3.8-flash", null, GeminiAiProvider.DEFAULT_BASE_URL,
                 restClientBuilder.build(), objectMapper, 2, 10L, 50L, testSleeper
         );
 
@@ -120,18 +121,34 @@ class GeminiAiProviderTest {
     @Test
     @DisplayName("isConfigured returns true when enabled and API key is present")
     void isConfigured_EnabledWithKey_ReturnsTrue() {
-        GeminiAiProvider provider = createProvider(2, "gemini-2.5-flash", null);
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
 
         assertThat(provider.isConfigured()).isTrue();
         assertThat(provider.getProviderName()).isEqualTo("gemini");
-        assertThat(provider.getModel()).isEqualTo("gemini-2.5-flash");
+        assertThat(provider.getModel()).isEqualTo("gemini-3.8-flash");
+    }
+
+    @Test
+    @DisplayName("constructor defaults model to gemini-3.8-flash when model parameter is null or blank")
+    void constructor_DefaultsToGemini38Flash_WhenNullOrBlank() {
+        GeminiAiProvider providerNull = new GeminiAiProvider(
+                true, "AIzaSyKey", null, null, null,
+                restClientBuilder.build(), objectMapper, 2, 10L, 50L, testSleeper
+        );
+        assertThat(providerNull.getModel()).isEqualTo("gemini-3.8-flash");
+
+        GeminiAiProvider providerBlank = new GeminiAiProvider(
+                true, "AIzaSyKey", "   ", null, null,
+                restClientBuilder.build(), objectMapper, 2, 10L, 50L, testSleeper
+        );
+        assertThat(providerBlank.getModel()).isEqualTo("gemini-3.8-flash");
     }
 
     @Test
     @DisplayName("generateImprovement throws 503 AiProviderUnavailableException when disabled")
     void generateImprovement_Disabled_ThrowsException() {
         GeminiAiProvider provider = new GeminiAiProvider(
-                false, "AIzaSyKey", "gemini-2.5-flash", null, GeminiAiProvider.DEFAULT_BASE_URL,
+                false, "AIzaSyKey", "gemini-3.8-flash", null, GeminiAiProvider.DEFAULT_BASE_URL,
                 restClientBuilder.build(), objectMapper, 2, 10L, 50L, testSleeper
         );
 
@@ -144,7 +161,7 @@ class GeminiAiProviderTest {
     @DisplayName("generateImprovement throws 503 AiProviderUnavailableException when API key is blank")
     void generateImprovement_BlankKey_ThrowsException() {
         GeminiAiProvider provider = new GeminiAiProvider(
-                true, "", "gemini-2.5-flash", null, GeminiAiProvider.DEFAULT_BASE_URL,
+                true, "", "gemini-3.8-flash", null, GeminiAiProvider.DEFAULT_BASE_URL,
                 restClientBuilder.build(), objectMapper, 2, 10L, 50L, testSleeper
         );
 
@@ -154,24 +171,74 @@ class GeminiAiProviderTest {
     }
 
     @Test
-    @DisplayName("generateImprovement sends x-goog-api-key header and parses valid candidate response")
+    @DisplayName("generateImprovement sends x-goog-api-key, Content-Type, Accept headers and parses valid candidate response")
     void generateImprovement_Success_ReturnsRawResult() {
-        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("x-goog-api-key", "AIzaSySecretKey"))
                 .andExpect(header("Content-Type", MediaType.APPLICATION_JSON_VALUE))
+                .andExpect(header("Accept", containsString("application/json")))
                 .andRespond(withSuccess(VALID_GEMINI_RESPONSE, MediaType.APPLICATION_JSON));
 
-        GeminiAiProvider provider = createProvider(2, "gemini-2.5-flash", null);
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
 
         AiRawResult result = provider.generateImprovement("Candidate Resume", "Target Job Description", "Staff Engineer");
 
         mockServer.verify();
         assertThat(result).isNotNull();
         assertThat(result.provider()).isEqualTo("gemini");
-        assertThat(result.model()).isEqualTo("gemini-2.5-flash");
+        assertThat(result.model()).isEqualTo("gemini-3.8-flash");
         assertThat(result.content()).contains("Senior Java Engineer");
         assertThat(recordedSleeps).isEmpty();
+    }
+
+    @Test
+    @DisplayName("generateImprovement handles application/octet-stream response content type")
+    void generateImprovement_OctetStreamContentType_HandlesSuccessfully() {
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess(VALID_GEMINI_RESPONSE, MediaType.APPLICATION_OCTET_STREAM));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        AiRawResult result = provider.generateImprovement("Candidate Resume", "Target Job Description", "Staff Engineer");
+
+        mockServer.verify();
+        assertThat(result).isNotNull();
+        assertThat(result.content()).contains("Senior Java Engineer");
+    }
+
+    @Test
+    @DisplayName("generateImprovement handles response without Content-Type header directly from stream")
+    void generateImprovement_MissingContentType_HandlesSuccessfully() {
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .body(VALID_GEMINI_RESPONSE));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        AiRawResult result = provider.generateImprovement("Candidate Resume", "Target Job Description", "Staff Engineer");
+
+        mockServer.verify();
+        assertThat(result).isNotNull();
+        assertThat(result.content()).contains("Senior Java Engineer");
+    }
+
+    @Test
+    @DisplayName("generateImprovement handles text/plain response content type")
+    void generateImprovement_TextPlainContentType_HandlesSuccessfully() {
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess(VALID_GEMINI_RESPONSE, MediaType.TEXT_PLAIN));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        AiRawResult result = provider.generateImprovement("Candidate Resume", "Target Job Description", "Staff Engineer");
+
+        mockServer.verify();
+        assertThat(result).isNotNull();
+        assertThat(result.content()).contains("Senior Java Engineer");
     }
 
     @Test
@@ -188,18 +255,18 @@ class GeminiAiProviderTest {
                 """;
 
         // 1st request fails with 503 High Demand
-        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(highDemandResponse));
 
         // 2nd request (retry) succeeds with 200 OK
-        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withSuccess(VALID_GEMINI_RESPONSE, MediaType.APPLICATION_JSON));
 
-        GeminiAiProvider provider = createProvider(3, "gemini-2.5-flash", null);
+        GeminiAiProvider provider = createProvider(3, "gemini-3.8-flash", null);
 
         AiRawResult result = provider.generateImprovement("Resume", "Job", "Dev");
 
@@ -211,19 +278,42 @@ class GeminiAiProviderTest {
     }
 
     @Test
+    @DisplayName("generateImprovement retries on transient HTTP 500 internal server error and succeeds on subsequent attempt")
+    void generateImprovement_Transient500_RetriesAndSucceeds() {
+        // 1st request fails with 500
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"error\":{\"code\":500,\"message\":\"Internal error encountered\"}}"));
+
+        // 2nd request succeeds
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withSuccess(VALID_GEMINI_RESPONSE, MediaType.APPLICATION_JSON));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        AiRawResult result = provider.generateImprovement("Resume", "Job", "Dev");
+
+        mockServer.verify();
+        assertThat(result).isNotNull();
+        assertThat(result.content()).contains("Senior Java Engineer");
+        assertThat(recordedSleeps).hasSize(1);
+    }
+
+    @Test
     @DisplayName("generateImprovement retries on transient HTTP 429 rate limit and succeeds on subsequent attempt")
     void generateImprovement_Transient429_RetriesAndSucceeds() {
         // 1st request fails with 429
-        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"error\":{\"code\":429,\"message\":\"Resource has been exhausted (e.g. check quota).\"}}"));
 
         // 2nd request succeeds
-        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withSuccess(VALID_GEMINI_RESPONSE, MediaType.APPLICATION_JSON));
 
-        GeminiAiProvider provider = createProvider(2, "gemini-2.5-flash", null);
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
 
         AiRawResult result = provider.generateImprovement("Resume", "Job", "Dev");
 
@@ -236,17 +326,17 @@ class GeminiAiProviderTest {
     @DisplayName("generateImprovement respects Retry-After header during backoff")
     void generateImprovement_RespectsRetryAfterHeader() {
         // 1st request sends Retry-After: 3 seconds
-        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
                         .header(HttpHeaders.RETRY_AFTER, "3")
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"error\":{\"code\":503,\"message\":\"Overloaded\"}}"));
 
         // 2nd request succeeds
-        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withSuccess(VALID_GEMINI_RESPONSE, MediaType.APPLICATION_JSON));
 
-        GeminiAiProvider provider = createProvider(2, "gemini-2.5-flash", null);
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
 
         AiRawResult result = provider.generateImprovement("Resume", "Job", "Dev");
 
@@ -261,14 +351,14 @@ class GeminiAiProviderTest {
     @DisplayName("generateImprovement retries on connection timeout and succeeds")
     void generateImprovement_Timeout_RetriesAndSucceeds() {
         // 1st attempt throws SocketTimeoutException
-        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withException(new SocketTimeoutException("Read timed out")));
 
         // 2nd attempt succeeds
-        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withSuccess(VALID_GEMINI_RESPONSE, MediaType.APPLICATION_JSON));
 
-        GeminiAiProvider provider = createProvider(2, "gemini-2.5-flash", null);
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
 
         AiRawResult result = provider.generateImprovement("Resume", "Job", "Dev");
 
@@ -281,12 +371,12 @@ class GeminiAiProviderTest {
     @DisplayName("generateImprovement throws AiServiceException when all 503 retries are exhausted")
     void generateImprovement_RetriesExhausted503_ThrowsAiServiceException() {
         int maxRetries = 2; // total 3 attempts
-        mockServer.expect(ExpectedCount.times(3), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(ExpectedCount.times(3), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand.\"}}"));
 
-        GeminiAiProvider provider = createProvider(maxRetries, "gemini-2.5-flash", null);
+        GeminiAiProvider provider = createProvider(maxRetries, "gemini-3.8-flash", null);
 
         assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
                 .isInstanceOf(AiServiceException.class)
@@ -298,12 +388,32 @@ class GeminiAiProviderTest {
     }
 
     @Test
+    @DisplayName("generateImprovement throws AiServiceException when all 429 retries are exhausted")
+    void generateImprovement_RetriesExhausted429_ThrowsAiServiceException() {
+        int maxRetries = 2; // total 3 attempts
+        mockServer.expect(ExpectedCount.times(3), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"error\":{\"code\":429,\"message\":\"Resource has been exhausted (e.g. check quota).\"}}"));
+
+        GeminiAiProvider provider = createProvider(maxRetries, "gemini-3.8-flash", null);
+
+        assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("rate limit reached")
+                .hasMessageContaining("HTTP 429");
+
+        mockServer.verify();
+        assertThat(recordedSleeps).hasSize(2);
+    }
+
+    @Test
     @DisplayName("generateImprovement switches to explicitly configured fallback model when primary model exhausts retries")
     void generateImprovement_FallbackModel_SucceedsWithFallback() {
         int maxRetries = 1; // 2 attempts per model
 
-        // Primary model 'gemini-2.5-flash' fails 2 times with 503
-        mockServer.expect(ExpectedCount.times(2), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        // Primary model 'gemini-3.8-flash' fails 2 times with 503
+        mockServer.expect(ExpectedCount.times(2), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"error\":{\"code\":503,\"message\":\"High demand\"}}"));
@@ -312,7 +422,7 @@ class GeminiAiProviderTest {
         mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"))
                 .andRespond(withSuccess(VALID_FALLBACK_RESPONSE, MediaType.APPLICATION_JSON));
 
-        GeminiAiProvider provider = createProvider(maxRetries, "gemini-2.5-flash", "gemini-2.0-flash");
+        GeminiAiProvider provider = createProvider(maxRetries, "gemini-3.8-flash", "gemini-2.0-flash");
 
         AiRawResult result = provider.generateImprovement("Resume", "Job", "Dev");
 
@@ -329,7 +439,7 @@ class GeminiAiProviderTest {
         int maxRetries = 1; // 2 attempts per model
 
         // Primary model fails twice
-        mockServer.expect(ExpectedCount.times(2), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(ExpectedCount.times(2), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"error\":{\"code\":503,\"message\":\"Primary down\"}}"));
@@ -340,22 +450,38 @@ class GeminiAiProviderTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"error\":{\"code\":503,\"message\":\"Fallback also down\"}}"));
 
-        GeminiAiProvider provider = createProvider(maxRetries, "gemini-2.5-flash", "gemini-2.0-flash");
+        GeminiAiProvider provider = createProvider(maxRetries, "gemini-3.8-flash", "gemini-2.0-flash");
 
         assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
                 .isInstanceOf(AiServiceException.class)
-                .hasMessageContaining("Primary model 'gemini-2.5-flash' and fallback model 'gemini-2.0-flash' both failed");
+                .hasMessageContaining("Primary model 'gemini-3.8-flash' and fallback model 'gemini-2.0-flash' both failed");
 
         mockServer.verify();
     }
 
     @Test
     @DisplayName("generateImprovement does NOT retry or invoke fallback on HTTP 401 permanent auth failure")
-    void generateImprovement_AuthFailed_FailsImmediatelyWithoutRetry() {
-        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+    void generateImprovement_AuthFailed401_FailsImmediatelyWithoutRetry() {
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withStatus(HttpStatus.UNAUTHORIZED).body("{\"error\":{\"message\":\"API key not valid\"}}"));
 
-        GeminiAiProvider provider = createProvider(3, "gemini-2.5-flash", "gemini-2.0-flash");
+        GeminiAiProvider provider = createProvider(3, "gemini-3.8-flash", "gemini-2.0-flash");
+
+        assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
+                .isInstanceOf(AiProviderUnavailableException.class)
+                .hasMessageContaining("AI provider authentication failed");
+
+        mockServer.verify();
+        assertThat(recordedSleeps).isEmpty();
+    }
+
+    @Test
+    @DisplayName("generateImprovement does NOT retry on HTTP 403 permanent forbidden failure")
+    void generateImprovement_Forbidden403_FailsImmediatelyWithoutRetry() {
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN).body("{\"error\":{\"message\":\"API key forbidden or lacks permission\"}}"));
+
+        GeminiAiProvider provider = createProvider(3, "gemini-3.8-flash", "gemini-2.0-flash");
 
         assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
                 .isInstanceOf(AiProviderUnavailableException.class)
@@ -368,10 +494,10 @@ class GeminiAiProviderTest {
     @Test
     @DisplayName("generateImprovement does NOT retry permanent HTTP 400 invalid argument error")
     void generateImprovement_BadRequest400_FailsImmediatelyWithoutRetry() {
-        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withStatus(HttpStatus.BAD_REQUEST).body("{\"error\":{\"message\":\"Invalid JSON request payload\"}}"));
 
-        GeminiAiProvider provider = createProvider(3, "gemini-2.5-flash", "gemini-2.0-flash");
+        GeminiAiProvider provider = createProvider(3, "gemini-3.8-flash", "gemini-2.0-flash");
 
         assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
                 .isInstanceOf(AiServiceException.class)
@@ -379,6 +505,191 @@ class GeminiAiProviderTest {
 
         mockServer.verify();
         assertThat(recordedSleeps).isEmpty();
+    }
+
+    @Test
+    @DisplayName("generateImprovement fails immediately on HTTP 404 model not found")
+    void generateImprovement_Permanent404_ThrowsAiServiceException() {
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"error\":{\"code\":404,\"message\":\"models/gemini-3.8-flash is not found for API version v1beta\"}}"));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("HTTP 404")
+                .hasMessageContaining("gemini-3.8-flash");
+
+        mockServer.verify();
+        assertThat(recordedSleeps).isEmpty();
+    }
+
+    @Test
+    @DisplayName("generateImprovement handles error payload returned with HTTP 200 containing 401 UNAUTHENTICATED")
+    void generateImprovement_ErrorPayload200_401Unauthenticated_ThrowsAiProviderUnavailable() {
+        String errorPayload = """
+                {
+                  "error": {
+                    "code": 401,
+                    "message": "API key not valid. Please pass a valid API key.",
+                    "status": "UNAUTHENTICATED"
+                  }
+                }
+                """;
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withSuccess(errorPayload, MediaType.APPLICATION_JSON));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
+                .isInstanceOf(AiProviderUnavailableException.class)
+                .hasMessageContaining("AI provider authentication failed");
+
+        mockServer.verify();
+        assertThat(recordedSleeps).isEmpty();
+    }
+
+    @Test
+    @DisplayName("generateImprovement handles error payload returned with HTTP 200 containing 404 NOT_FOUND")
+    void generateImprovement_ErrorPayload200_404NotFound_ThrowsAiServiceException() {
+        String errorPayload = """
+                {
+                  "error": {
+                    "code": 404,
+                    "message": "models/gemini-3.8-flash is not found for API version v1beta",
+                    "status": "NOT_FOUND"
+                  }
+                }
+                """;
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withSuccess(errorPayload, MediaType.APPLICATION_JSON));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("was not found or is unsupported");
+
+        mockServer.verify();
+        assertThat(recordedSleeps).isEmpty();
+    }
+
+    @Test
+    @DisplayName("generateImprovement retries on error payload with HTTP 200 containing 429 RESOURCE_EXHAUSTED and succeeds")
+    void generateImprovement_ErrorPayload200_429Quota_RetriesAndSucceeds() {
+        String quotaPayload = """
+                {
+                  "error": {
+                    "code": 429,
+                    "message": "Resource has been exhausted (e.g. check quota).",
+                    "status": "RESOURCE_EXHAUSTED"
+                  }
+                }
+                """;
+        // 1st attempt returns 200 with error payload
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withSuccess(quotaPayload, MediaType.APPLICATION_JSON));
+
+        // 2nd attempt succeeds
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withSuccess(VALID_GEMINI_RESPONSE, MediaType.APPLICATION_JSON));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        AiRawResult result = provider.generateImprovement("Resume", "Job", "Dev");
+
+        mockServer.verify();
+        assertThat(result).isNotNull();
+        assertThat(result.content()).contains("Senior Java Engineer");
+        assertThat(recordedSleeps).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("generateImprovement throws AiServiceException on empty response body")
+    void generateImprovement_EmptyResponseBody_ThrowsAiServiceException() {
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("Received empty response body");
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("generateImprovement throws AiServiceException on malformed non-JSON response body")
+    void generateImprovement_MalformedNonJsonResponseBody_ThrowsAiServiceException() {
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withSuccess("<html><body>502 Bad Gateway</body></html>", MediaType.TEXT_HTML));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("unable to parse response JSON");
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("generateImprovement throws AiServiceException when candidate content parts are missing")
+    void generateImprovement_CandidateMissingParts_ThrowsAiServiceException() {
+        String invalidCandidateResponse = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [],
+                        "role": "model"
+                      }
+                    }
+                  ]
+                }
+                """;
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withSuccess(invalidCandidateResponse, MediaType.APPLICATION_JSON));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("contains no content parts");
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("generateImprovement throws AiServiceException when candidate text content is empty")
+    void generateImprovement_CandidateEmptyText_ThrowsAiServiceException() {
+        String emptyTextResponse = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          { "text": "   " }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ]
+                }
+                """;
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
+                .andRespond(withSuccess(emptyTextResponse, MediaType.APPLICATION_JSON));
+
+        GeminiAiProvider provider = createProvider(2, "gemini-3.8-flash", null);
+
+        assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("empty text content");
+
+        mockServer.verify();
     }
 
     @Test
@@ -393,10 +704,10 @@ class GeminiAiProviderTest {
                 }
                 """;
 
-        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"))
+        mockServer.expect(ExpectedCount.once(), requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"))
                 .andRespond(withSuccess(blockedResponse, MediaType.APPLICATION_JSON));
 
-        GeminiAiProvider provider = createProvider(3, "gemini-2.5-flash", "gemini-2.0-flash");
+        GeminiAiProvider provider = createProvider(3, "gemini-3.8-flash", "gemini-2.0-flash");
 
         assertThatThrownBy(() -> provider.generateImprovement("Resume", "Job", "Dev"))
                 .isInstanceOf(AiServiceException.class)
@@ -409,7 +720,7 @@ class GeminiAiProviderTest {
     @Test
     @DisplayName("calculateBackoffMillis produces bounded exponential backoff within configured bounds")
     void calculateBackoffMillis_ProducesBoundedExponentialBackoff() {
-        GeminiAiProvider provider = createProvider(3, "gemini-2.5-flash", null);
+        GeminiAiProvider provider = createProvider(3, "gemini-3.8-flash", null);
 
         // Check attempt 0: initial is 10ms, capped at 100ms. Jitter is between 5ms and 10ms.
         long delay0 = provider.calculateBackoffMillis(0, Optional.empty());

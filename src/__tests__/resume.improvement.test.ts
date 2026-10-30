@@ -138,6 +138,29 @@ describe("Phase 5: AI Resume Improvement & Career Recommendations Service", () =
     const body = JSON.parse(calledOptions.body);
     expect(body.userConsent).toBe(true);
     expect(body.targetRole).toBe("Senior Backend Engineer");
+    expect(calledOptions.signal).toBeDefined();
+  });
+
+  it("apiClient aborts and throws HTTP 408 ApiError when request times out", async () => {
+    globalThis.fetch = vi.fn().mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          const error = new Error("The operation was aborted due to timeout");
+          error.name = "AbortError";
+          setTimeout(() => reject(error), 20);
+        })
+    );
+
+    await expect(
+      resumeService.improveResume(
+        "res-uuid-1",
+        {
+          jobDescription: "Valid job description length for testing timeout behavior...",
+          userConsent: true,
+        },
+        { timeoutMs: 5 }
+      )
+    ).rejects.toThrow("Request timed out");
   });
 
   it("getLatestImprovement returns existing report when available", async () => {
@@ -206,6 +229,19 @@ describe("Phase 5: AI Resume Improvement & Career Recommendations Service", () =
     it("formats network connection error safely", () => {
       const formatted = formatImprovementErrorMessage(new Error("Failed to fetch"));
       expect(formatted).toContain("Unable to connect to the backend server");
+    });
+
+    it("formats HTTP 408 request timeout", () => {
+      const err = new ApiError("Request timed out. The server or AI service took longer than expected to respond.", 408);
+      const formatted = formatImprovementErrorMessage(err);
+      expect(formatted).toContain("timed out");
+      expect(formatted).toContain("longer than expected");
+    });
+
+    it("formats AbortError or client-side timeout message", () => {
+      const err = new Error("The operation was aborted due to timeout");
+      const formatted = formatImprovementErrorMessage(err);
+      expect(formatted).toContain("timed out");
     });
   });
 });

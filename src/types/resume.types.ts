@@ -127,3 +127,94 @@ export interface ResumeImprovementRequest {
   targetRole?: string;
 }
 
+// Phase 6: Resume Versioning & ATS PDF Export
+export interface ResumeVersion {
+  id: string;
+  resumeId: string;
+  versionNumber: number;
+  versionName: string;
+  targetRole?: string | null;
+  targetCompany?: string | null;
+  summary?: string | null;
+  skills?: string | null;
+  experience?: string | null;
+  education?: string | null;
+  projects?: string | null;
+  customSections?: string | null;
+  isBaseVersion: boolean;
+  parentVersionId?: string | null;
+  parentVersionNumber?: number | null;
+  wordCount: number;
+  characterCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateResumeVersionRequest {
+  versionName: string;
+  targetRole?: string;
+  targetCompany?: string;
+  summary?: string;
+  skills?: string;
+  experience?: string;
+  education?: string;
+  projects?: string;
+  customSections?: string;
+  isBaseVersion?: boolean;
+}
+
+export interface UpdateResumeVersionRequest {
+  versionName: string;
+  targetRole?: string;
+  targetCompany?: string;
+  summary?: string;
+  skills?: string;
+  experience?: string;
+  education?: string;
+  projects?: string;
+  customSections?: string;
+}
+
+export interface DuplicateResumeVersionRequest {
+  newVersionName?: string;
+  targetRole?: string;
+  targetCompany?: string;
+}
+
+export interface RestoreResumeVersionRequest {
+  newVersionName?: string;
+}
+
+export interface SectionDiff {
+  sectionName: string;
+  isModified: boolean;
+  sourceText?: string | null;
+  targetText?: string | null;
+  sourceWords: number;
+  targetWords: number;
+  wordCountDelta: number;
+}
+
+export interface ResumeVersionComparison {
+  sourceVersion: ResumeVersion;
+  targetVersion: ResumeVersion;
+  summaryDiff: SectionDiff;
+  skillsDiff: SectionDiff;
+  experienceDiff: SectionDiff;
+  educationDiff: SectionDiff;
+  projectsDiff: SectionDiff;
+  wordCountDelta: number;
+  characterCountDelta: number;
+  addedSkills: string[];
+  removedSkills: string[];
+}
+
+export interface ApplyAiSuggestionRequest {
+  suggestionType: "SUMMARY" | "BULLET" | "SKILL" | string;
+  textToApply: string;
+  targetSection: "summary" | "experience" | "skills" | "projects" | "education" | "custom" | string;
+  action?: "REPLACE" | "APPEND" | "PREPEND";
+  originalText?: string;
+}
+
+

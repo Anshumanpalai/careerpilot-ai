@@ -1,0 +1,21 @@
+# Ignore backend files from Vercel deployment
+server/
+docker-compose.yml
+
+# Storage & logs
+storage/
+*.log
+
+# Git & IDE
+.git/
+.github/
+.vscode/
+.idea/
+.gemini/
+
+# Node
+node_modules/
+dist/
+.env
+.env.local
+

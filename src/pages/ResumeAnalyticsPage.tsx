@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
 import { resumeService, formatMatchErrorMessage } from "@/services/resume.service";
-import { ResumeMetric } from "@/types/applications.types";
 import { ResumeAnalysis, ResumeMatchResponse, ResumeRecord } from "@/types/resume.types";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,16 +7,17 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorAlert } from "@/components/common/ErrorAlert";
 import { AiResumeStudio } from "@/components/resume/AiResumeStudio";
+import { ResumeVersionStudio } from "@/components/resume/ResumeVersionStudio";
 import {
   Sparkles,
   CheckCircle,
-  Plus,
   Zap,
   UploadCloud,
   FileText,
   Download,
   Trash2,
   X,
+  Layers,
   AlertCircle,
   FileCode,
   Eye,
@@ -30,12 +30,12 @@ import {
   Info,
   SearchCode,
   ShieldCheck,
+  Pencil,
+  Check,
 } from "lucide-react";
 
 export const ResumeAnalyticsPage: React.FC = () => {
-  const [metrics, setMetrics] = useState<ResumeMetric | null>(null);
   const [resumes, setResumes] = useState<ResumeRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [resumesLoading, setResumesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -47,16 +47,22 @@ export const ResumeAnalyticsPage: React.FC = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Inline rename state
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState<string>("");
+  const [renameLoading, setRenameLoading] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+
   // Parsing & Analysis state
   const [parsingId, setParsingId] = useState<string | null>(null);
   const [activeAnalysis, setActiveAnalysis] = useState<ResumeAnalysis | null>(null);
   const [analysisModalLoading, setAnalysisModalLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"sections" | "raw">("sections");
 
-  // Studio Mode: Phase 5 AI Resume Studio vs Phase 4C Deterministic ATS Scanner
-  const [activeStudioMode, setActiveStudioMode] = useState<"ai" | "ats">("ai");
+  // Studio Mode: AI Tailoring vs Versioning & PDF vs ATS Scanner
+  const [activeStudioMode, setActiveStudioMode] = useState<"ai" | "versions" | "ats">("ai");
 
-  // Phase 4C: Job Description Matching state
+  // ATS Keyword Scanner state
   const [selectedResumeId, setSelectedResumeId] = useState<string>("");
   const [jobDescriptionInput, setJobDescriptionInput] = useState<string>("");
   const [isMatching, setIsMatching] = useState(false);
@@ -64,31 +70,15 @@ export const ResumeAnalyticsPage: React.FC = () => {
   const [matchResult, setMatchResult] = useState<ResumeMatchResponse | null>(null);
   const [matchFilter, setMatchFilter] = useState<"all" | "matched" | "undetected">("all");
 
-  // Bullet point analyzer simulator
-  const [bulletInput, setBulletInput] = useState(
-    "Led backend API migration and helped improve system reliability for web app."
-  );
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<{
-    score: number;
-    suggestions: string[];
-  } | null>(null);
-
   const loadData = async () => {
-    setIsLoading(true);
     setResumesLoading(true);
     setError(null);
     try {
-      const [metricsData, resumesData] = await Promise.all([
-        resumeService.getResumeMetrics(),
-        resumeService.listResumes(),
-      ]);
-      setMetrics(metricsData);
+      const resumesData = await resumeService.listResumes();
       setResumes(resumesData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load resume analysis");
+      setError(err instanceof Error ? err.message : "Failed to load resume documents");
     } finally {
-      setIsLoading(false);
       setResumesLoading(false);
     }
   };
@@ -281,28 +271,52 @@ Preferred Qualifications:
     }
   };
 
+  const startRenaming = (resume: ResumeRecord) => {
+    setRenamingId(resume.id);
+    setRenameValue(resume.originalFilename);
+    setRenameError(null);
+  };
+
+  const cancelRenaming = () => {
+    setRenamingId(null);
+    setRenameValue("");
+    setRenameError(null);
+  };
+
+  const confirmRename = async (resumeId: string) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      setRenameError("Filename must not be blank.");
+      return;
+    }
+    if (trimmed.length > 255) {
+      setRenameError("Filename must be 255 characters or fewer.");
+      return;
+    }
+    if (/[/\\<>:"|?*]/.test(trimmed) || trimmed.startsWith(".")) {
+      setRenameError("Filename contains invalid characters.");
+      return;
+    }
+
+    setRenameLoading(true);
+    setRenameError(null);
+    try {
+      const updated = await resumeService.renameResume(resumeId, trimmed);
+      setResumes((prev) => prev.map((r) => (r.id === resumeId ? { ...r, originalFilename: updated.originalFilename } : r)));
+      setSuccessMessage(`Renamed to "${updated.originalFilename}".`);
+      setRenamingId(null);
+      setRenameValue("");
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : "Rename failed. Please try again.");
+    } finally {
+      setRenameLoading(false);
+    }
+  };
+
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const handleAnalyzeBullet = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!bulletInput.trim()) return;
-
-    setIsAnalyzing(true);
-    try {
-      const res = await resumeService.analyzeResumeSnippet(
-        bulletInput,
-        "Staff Software Engineer"
-      );
-      setAnalysisResult(res);
-    } catch {
-      alert("Analysis failed");
-    } finally {
-      setIsAnalyzing(false);
-    }
   };
 
   const getStatusBadge = (status: "UPLOADED" | "PARSED" | "FAILED") => {
@@ -316,26 +330,15 @@ Preferred Qualifications:
     }
   };
 
-  const getSeverityBadge = (severity: "HIGH" | "MEDIUM" | "LOW") => {
-    switch (severity) {
-      case "HIGH":
-        return <Badge variant="destructive">High Priority</Badge>;
-      case "MEDIUM":
-        return <Badge variant="warning">Medium</Badge>;
-      case "LOW":
-        return <Badge variant="info">Low</Badge>;
-    }
-  };
-
   return (
     <div className="space-y-8 pb-12">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          Resume ATS Intelligence
+          Resume Intelligence & ATS Studio
         </h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Upload documents, extract real text, inspect detected sections, and evaluate ATS compatibility.
+          Upload your resume, extract structured sections, tailor your content with AI, and export ATS-friendly PDFs.
         </p>
       </div>
 
@@ -354,6 +357,205 @@ Preferred Qualifications:
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+      )}
+
+      {/* 5-Step Workflow Visual Progress */}
+      <Card className="border-indigo-500/20 bg-gradient-to-r from-indigo-500/[0.03] via-purple-500/[0.02] to-transparent shadow-sm">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-border/60">
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+              Resume Optimization Workflow
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {resumes.length === 0
+                ? "Step 1 of 5: Upload your resume to begin"
+                : parsedResumes.length === 0
+                ? "Step 2 of 5: Extract sections from uploaded resume"
+                : "Step 3 of 5: Choose a tool to optimize or export"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 text-xs">
+            {/* Step 1 */}
+            <div
+              className={`p-3 rounded-lg border transition-all ${
+                resumes.length > 0
+                  ? "border-emerald-500/30 bg-emerald-500/5 text-foreground"
+                  : "border-primary bg-primary/5 text-foreground font-medium ring-1 ring-primary/30"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span
+                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                    resumes.length > 0
+                      ? "bg-emerald-500 text-white"
+                      : "bg-primary text-primary-foreground"
+                  }`}
+                >
+                  {resumes.length > 0 ? "✓" : "1"}
+                </span>
+                <span className="font-semibold text-xs">1. Upload Resume</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                {resumes.length > 0
+                  ? `${resumes.length} document${resumes.length > 1 ? "s" : ""} uploaded`
+                  : "Upload PDF or DOCX file"}
+              </p>
+            </div>
+
+            {/* Step 2 */}
+            <div
+              className={`p-3 rounded-lg border transition-all ${
+                parsedResumes.length > 0
+                  ? "border-emerald-500/30 bg-emerald-500/5 text-foreground"
+                  : resumes.length > 0
+                  ? "border-amber-500/40 bg-amber-500/5 text-foreground font-medium ring-1 ring-amber-500/30"
+                  : "border-border bg-muted/20 text-muted-foreground"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span
+                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                    parsedResumes.length > 0
+                      ? "bg-emerald-500 text-white"
+                      : resumes.length > 0
+                      ? "bg-amber-500 text-white"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {parsedResumes.length > 0 ? "✓" : "2"}
+                </span>
+                <span className="font-semibold text-xs">2. Extract Content</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                {parsedResumes.length > 0
+                  ? `${parsedResumes.length} parsed & ready`
+                  : resumes.length > 0
+                  ? "Click Parse Resume below"
+                  : "Extract text & sections"}
+              </p>
+            </div>
+
+            {/* Step 3 */}
+            <div
+              className={`p-3 rounded-lg border transition-all ${
+                parsedResumes.length > 0
+                  ? "border-indigo-500/30 bg-indigo-500/5 text-foreground font-medium"
+                  : "border-border bg-muted/20 text-muted-foreground"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span
+                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                    parsedResumes.length > 0
+                      ? "bg-indigo-600 text-white"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  3
+                </span>
+                <span className="font-semibold text-xs">3. Choose Tool</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                AI Tailoring, Versions, or ATS
+              </p>
+            </div>
+
+            {/* Step 4 */}
+            <div
+              className={`p-3 rounded-lg border transition-all ${
+                parsedResumes.length > 0 && (matchResult || activeStudioMode === "ai")
+                  ? "border-indigo-500/30 bg-indigo-500/5 text-foreground"
+                  : "border-border bg-muted/20 text-muted-foreground"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold bg-muted text-muted-foreground">
+                  4
+                </span>
+                <span className="font-semibold text-xs">4. Review Results</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                AI feedback or keyword gaps
+              </p>
+            </div>
+
+            {/* Step 5 */}
+            <div
+              className={`p-3 rounded-lg border transition-all ${
+                parsedResumes.length > 0 && activeStudioMode === "versions"
+                  ? "border-indigo-500/30 bg-indigo-500/5 text-foreground"
+                  : "border-border bg-muted/20 text-muted-foreground"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold bg-muted text-muted-foreground">
+                  5
+                </span>
+                <span className="font-semibold text-xs">5. Save & Export</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Save version or export PDF
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* State-Adaptive Guidance Banner */}
+      {!resumesLoading && resumes.length === 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-indigo-500/30 bg-indigo-50/50 dark:bg-indigo-950/20 p-4 text-xs">
+          <div className="rounded-lg bg-indigo-500/10 p-2 text-indigo-600 dark:text-indigo-400 shrink-0">
+            <UploadCloud className="h-5 w-5" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="font-bold text-foreground text-sm">Step 1: Upload your master resume</h4>
+            <p className="text-muted-foreground leading-relaxed">
+              Upload your resume in PDF or DOCX format using the box below. Once uploaded, click <strong>"Parse Resume"</strong> to extract your skills and experience. This unlocks AI tailoring, versioning, and ATS keyword scanning.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!resumesLoading && resumes.length > 0 && parsedResumes.length === 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-50/60 dark:bg-amber-950/20 p-4 text-xs">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-amber-500/10 p-2 text-amber-600 dark:text-amber-400 shrink-0">
+              <AlertCircle className="h-5 w-5" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="font-bold text-foreground text-sm">Step 2: Extract text to enable tools</h4>
+              <p className="text-muted-foreground leading-relaxed">
+                Your resume file is uploaded, but its sections must be extracted before AI tailoring, versions, or ATS analysis can run. Click <strong>"Parse Resume"</strong> on your uploaded document below to begin.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="brand"
+            size="sm"
+            isLoading={parsingId === resumes[0]?.id}
+            onClick={() => handleParseResume(resumes[0]?.id)}
+            className="shrink-0 gap-1.5 shadow-sm"
+          >
+            <FileCode className="h-3.5 w-3.5" />
+            <span>Parse Resume Now</span>
+          </Button>
+        </div>
+      )}
+
+      {!resumesLoading && parsedResumes.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-950/20 px-4 py-2.5 text-xs text-foreground">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="text-muted-foreground">
+              Ready for optimization: <strong className="text-foreground">{parsedResumes.find((r) => r.id === targetResumeId)?.originalFilename || parsedResumes[0].originalFilename}</strong>
+            </span>
+          </div>
+          <span className="text-[11px] text-muted-foreground">
+            Choose a tool below to tailor content with AI, create versions, or scan ATS keywords.
+          </span>
         </div>
       )}
 
@@ -454,10 +656,63 @@ Preferred Qualifications:
                       <div className="rounded-lg bg-muted p-2 shrink-0">
                         <FileText className="h-5 w-5 text-foreground/80" />
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-xs text-foreground truncate max-w-sm">
-                          {resume.originalFilename}
-                        </p>
+                      <div className="min-w-0 flex-1">
+                        {renamingId === resume.id ? (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                autoFocus
+                                type="text"
+                                value={renameValue}
+                                onChange={(e) => { setRenameValue(e.target.value); setRenameError(null); }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") void confirmRename(resume.id);
+                                  if (e.key === "Escape") cancelRenaming();
+                                }}
+                                disabled={renameLoading}
+                                maxLength={255}
+                                className="h-7 flex-1 min-w-0 rounded-md border border-input bg-background px-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                                aria-label="New filename"
+                              />
+                              <button
+                                onClick={() => void confirmRename(resume.id)}
+                                disabled={renameLoading}
+                                className="h-7 w-7 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                                title="Confirm rename"
+                              >
+                                {renameLoading ? (
+                                  <span className="h-3 w-3 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin inline-block" />
+                                ) : (
+                                  <Check className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                              <button
+                                onClick={cancelRenaming}
+                                disabled={renameLoading}
+                                className="h-7 w-7 flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+                                title="Cancel rename"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            {renameError && (
+                              <p className="text-[11px] text-destructive">{renameError}</p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 group/name min-w-0">
+                            <p className="font-semibold text-xs text-foreground truncate max-w-sm">
+                              {resume.originalFilename}
+                            </p>
+                            <button
+                              onClick={() => startRenaming(resume)}
+                              className="opacity-0 group-hover/name:opacity-100 focus:opacity-100 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-opacity"
+                              title="Rename"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
                           <span>{formatFileSize(resume.fileSize)}</span>
                           <span>•</span>
@@ -684,46 +939,72 @@ Preferred Qualifications:
       )}
 
       {/* ========================================================================= */}
-      {/* STUDIO MODE SWITCHER: AI COPILOT (PHASE 5) VS DETERMINISTIC ATS (PHASE 4C) */}
+      {/* FEATURE TABS: TAILOR WITH AI | RESUME VERSIONS & PDF | ATS KEYWORD SCANNER */}
       {/* ========================================================================= */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
-        <div>
-          <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
-            <span>CareerPilot Resume Studio</span>
-          </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Switch between AI-powered truthful resume rewrites and deterministic ATS keyword scanning.
-          </p>
+      <div className="space-y-3 border-b border-border pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-bold text-foreground">
+              Resume Studio Tools
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Select a specialized tool to tailor your content, manage versions, or scan ATS keyword fit.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-muted/60 border border-border shrink-0">
+            <button
+              type="button"
+              id="tab-ai-studio"
+              onClick={() => setActiveStudioMode("ai")}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                activeStudioMode === "ai"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>Tailor Resume with AI</span>
+            </button>
+            <button
+              type="button"
+              id="tab-resume-versions"
+              onClick={() => setActiveStudioMode("versions")}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                activeStudioMode === "versions"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Layers className="h-3.5 w-3.5" />
+              <span>Resume Versions & PDF</span>
+            </button>
+            <button
+              type="button"
+              id="tab-ats-scanner"
+              onClick={() => setActiveStudioMode("ats")}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                activeStudioMode === "ats"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Target className="h-3.5 w-3.5" />
+              <span>ATS Keyword Scanner</span>
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-muted/60 border border-border shrink-0">
-          <button
-            type="button"
-            id="tab-ai-studio"
-            onClick={() => setActiveStudioMode("ai")}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeStudioMode === "ai"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>AI Resume Studio</span>
-            <Badge variant="purple" className="text-[9px] px-1.5 py-0">Phase 5</Badge>
-          </button>
-          <button
-            type="button"
-            id="tab-ats-scanner"
-            onClick={() => setActiveStudioMode("ats")}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeStudioMode === "ats"
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Target className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span>Deterministic ATS Matcher</span>
-            <Badge variant="purple" className="text-[9px] px-1.5 py-0">4C</Badge>
-          </button>
+
+        {/* Short, plain-language description explaining current tab */}
+        <div className="rounded-lg bg-muted/40 border border-border/60 px-3.5 py-2 text-xs text-muted-foreground flex items-center gap-2">
+          <Info className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+          <span>
+            {activeStudioMode === "ai" &&
+              "Tailor Resume with AI: Generate evidence-based summary rewrites, quantifiable bullet points, and customized skills for a specific job description."}
+            {activeStudioMode === "versions" &&
+              "Resume Versions & PDF: Create and edit tailored variations of your resume, compare line-by-line differences, and export ATS-friendly formatted PDFs."}
+            {activeStudioMode === "ats" &&
+              "ATS Keyword Scanner: Compare your resume against a target job posting to scan for keyword matches, compute your ATS fit score, and identify missing technical skills."}
+          </span>
         </div>
       </div>
 
@@ -737,8 +1018,16 @@ Preferred Qualifications:
           onLoadSampleJd={handleLoadSampleJd}
           formatFileSize={formatFileSize}
         />
+      ) : activeStudioMode === "versions" ? (
+        <ResumeVersionStudio
+          parsedResumes={parsedResumes}
+          targetResumeId={targetResumeId}
+          onSelectResumeId={setSelectedResumeId}
+          formatFileSize={formatFileSize}
+          onSwitchToAiStudio={() => setActiveStudioMode("ai")}
+        />
       ) : (
-        /* PHASE 4C: RESUME-TO-JOB DESCRIPTION MATCHING WORKFLOW */
+        /* ATS KEYWORD SCANNER & MATCHING WORKFLOW */
         <Card className="border-indigo-500/40 shadow-sm">
           <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -748,11 +1037,10 @@ Preferred Qualifications:
               </div>
               <div>
                 <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <span>Resume-to-Job Description Alignment</span>
-                  <Badge variant="purple" className="text-[10px] tracking-wide uppercase">Phase 4C</Badge>
+                  <span>ATS Keyword Scanner</span>
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Evaluate your parsed resume against a target job description to compute a deterministic baseline fit score and identify qualification gaps.
+                  Evaluate your parsed resume against a target job description to compute your ATS keyword fit score and identify qualification gaps.
                 </CardDescription>
               </div>
             </div>
@@ -828,6 +1116,16 @@ Preferred Qualifications:
               </div>
             </div>
 
+            {/* Job Description Required Prompt when empty */}
+            {jobDescriptionInput.trim().length === 0 && (
+              <div className="rounded-lg border border-indigo-500/20 bg-indigo-50/40 dark:bg-indigo-950/20 p-3 text-xs text-muted-foreground flex items-center gap-2">
+                <Info className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span>
+                  ATS keyword scanning requires a target job description. Paste the job requirements below or click <strong>"Load Sample Job Posting"</strong> to test with an example role.
+                </span>
+              </div>
+            )}
+
             {/* Job Description Textarea */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -892,7 +1190,7 @@ Preferred Qualifications:
                 className="gap-2"
               >
                 <Zap className="h-4 w-4" />
-                Analyze Job Alignment
+                Scan ATS Keywords
               </Button>
             </div>
           </form>
@@ -902,11 +1200,11 @@ Preferred Qualifications:
             <div className="space-y-6 pt-4 border-t border-border animate-in fade-in-50">
               {/* Score Display & Components Header */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                {/* Main Deterministic Score Card */}
+                {/* Main ATS Score Card */}
                 <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-4 flex flex-col justify-between">
                   <div>
                     <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Baseline Fit Score
+                      ATS Keyword Match Score
                     </span>
                     <div className="flex items-baseline gap-2 mt-2">
                       <span
@@ -1173,222 +1471,6 @@ Preferred Qualifications:
         </CardContent>
       </Card>
       )}
-
-      {/* Top Metrics Cards */}
-      {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i} className="p-6">
-              <Skeleton className="h-4 w-28 mb-3" />
-              <Skeleton className="h-10 w-20" />
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="p-6">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Overall ATS Score
-              </span>
-              <div className="flex items-baseline gap-2 mt-3">
-                <span className="text-4xl font-extrabold text-foreground">
-                  {metrics?.overallScore || 89}
-                </span>
-                <span className="text-xs font-semibold text-emerald-600">/ 100</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">Ready for direct recruiter review</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Keyword Density Match
-              </span>
-              <div className="flex items-baseline gap-2 mt-3">
-                <span className="text-4xl font-extrabold text-foreground">
-                  {metrics?.keywordMatch || 92}%
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">Matched 34 of 37 tier-1 skills</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Measurable Impact Score
-              </span>
-              <div className="flex items-baseline gap-2 mt-3">
-                <span className="text-4xl font-extrabold text-foreground">
-                  {metrics?.impactScore || 86}%
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">72% of bullets contain metrics</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                ATS Format Readability
-              </span>
-              <div className="flex items-baseline gap-2 mt-3">
-                <span className="text-4xl font-extrabold text-emerald-600 dark:text-emerald-400">
-                  {metrics?.atsReadability || 96}%
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">Clean single-column parsing</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Interactive Bullet Rewriter Tool */}
-      <Card className="border-indigo-500/30">
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
-            <Sparkles className="h-5 w-5" />
-            <CardTitle className="text-base font-bold">
-              AI Bullet Point Optimization Sandbox
-            </CardTitle>
-          </div>
-          <CardDescription className="text-xs">
-            Paste any bullet point from your resume. CareerPilot will score its impact and rewrite it with quantifiable metrics.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleAnalyzeBullet} className="space-y-4">
-            <div className="space-y-1.5">
-              <textarea
-                rows={3}
-                className="flex w-full rounded-lg border border-input bg-card p-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={bulletInput}
-                onChange={(e) => setBulletInput(e.target.value)}
-                placeholder="Paste a resume bullet point here..."
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-[11px] text-muted-foreground">
-                Evaluated against: <span className="font-semibold text-foreground">Senior / Staff Engineering ATS Baselines</span>
-              </p>
-              <Button type="submit" variant="brand" size="sm" isLoading={isAnalyzing} className="gap-2">
-                <Zap className="h-4 w-4" />
-                Analyze & Enhance
-              </Button>
-            </div>
-          </form>
-
-          {analysisResult && (
-            <div className="mt-4 rounded-xl border border-border bg-muted/40 p-4 space-y-3 animate-in fade-in-50">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-foreground">Optimization Result</span>
-                <Badge variant={analysisResult.score >= 85 ? "success" : "warning"}>
-                  Fit Score: {analysisResult.score}/100
-                </Badge>
-              </div>
-
-              <div className="space-y-1">
-                <span className="text-xs font-semibold text-muted-foreground">Actionable Recommendations:</span>
-                <ul className="space-y-1 text-xs text-foreground/90 list-disc list-inside">
-                  {analysisResult.suggestions.map((s, idx) => (
-                    <li key={idx} className="leading-relaxed">{s}</li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="rounded-lg bg-background p-3 border border-border">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 block mb-1">
-                  Suggested High-Impact Rewrite:
-                </span>
-                <p className="text-xs text-foreground font-medium italic">
-                  "Spearheaded distributed REST API migration to asynchronous microservices, reducing p99 latency by 38% and supporting 2.4M daily active requests."
-                </p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Keywords Breakdown & Recent Critiques */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Identified Skills vs Gaps */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-bold">Skills & Keyword Coverage</CardTitle>
-            <CardDescription className="text-xs">
-              Extracted from your uploaded resume against target job requirements
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div>
-              <span className="text-xs font-semibold text-muted-foreground block mb-2">
-                Verified Present in Resume ({metrics?.topSkillsFound.length || 0}):
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {metrics?.topSkillsFound.map((skill) => (
-                  <span
-                    key={skill}
-                    className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
-                  >
-                    <CheckCircle className="h-3 w-3 text-emerald-600" />
-                    {skill}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <span className="text-xs font-semibold text-muted-foreground block mb-2">
-                Recommended Additions for Staff / Lead roles:
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {metrics?.recommendedSkills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-400 border border-amber-500/20"
-                  >
-                    <Plus className="h-3 w-3 text-amber-600" />
-                    {skill}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Actionable Critiques */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-bold">Priority Section Critiques</CardTitle>
-            <CardDescription className="text-xs">
-              Flagged issues with suggested replacements
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {metrics?.recentCritiques.map((critique) => (
-              <div
-                key={critique.id}
-                className="rounded-lg border border-border p-3.5 space-y-1.5 text-xs"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-foreground">{critique.section}</span>
-                  {getSeverityBadge(critique.severity)}
-                </div>
-                <p className="text-muted-foreground text-[11px] font-medium">
-                  Issue: <span className="text-destructive font-normal">{critique.issue}</span>
-                </p>
-                <div className="rounded bg-muted/50 p-2 text-[11px] text-foreground leading-relaxed">
-                  <span className="font-semibold text-indigo-600 dark:text-indigo-400">Suggestion: </span>
-                  {critique.suggestion}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 };

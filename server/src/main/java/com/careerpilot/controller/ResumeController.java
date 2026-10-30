@@ -5,6 +5,7 @@ import com.careerpilot.dto.ResumeImprovementRequest;
 import com.careerpilot.dto.ResumeImprovementResponse;
 import com.careerpilot.dto.ResumeMatchRequest;
 import com.careerpilot.dto.ResumeMatchResponse;
+import com.careerpilot.dto.RenameResumeRequest;
 import com.careerpilot.dto.ResumeResponse;
 import com.careerpilot.security.UserPrincipal;
 import com.careerpilot.service.ResumeImprovementService;
@@ -131,6 +132,16 @@ public class ResumeController {
             @PathVariable("id") UUID id
     ) {
         ResumeImprovementResponse response = resumeImprovementService.getLatestImprovement(principal.getId(), id);
+        return ResponseEntity.ok(response);
+    }
+
+    @PatchMapping("/{id}/rename")
+    public ResponseEntity<ResumeResponse> renameResume(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable("id") UUID id,
+            @Valid @RequestBody RenameResumeRequest request
+    ) {
+        ResumeResponse response = resumeService.renameResume(principal.getId(), id, request.filename());
         return ResponseEntity.ok(response);
     }
 

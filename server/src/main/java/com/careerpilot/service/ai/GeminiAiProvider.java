@@ -9,10 +9,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZonedDateTime;
@@ -244,10 +247,15 @@ public class GeminiAiProvider implements AiProvider {
         generationConfig.put("responseMimeType", "application/json");
         requestPayload.put("generationConfig", generationConfig);
 
+        long overallStartTime = System.currentTimeMillis();
         String normalizedPrimaryModel = normalizeModelName(this.model);
 
         try {
-            return executeWithRetry(normalizedPrimaryModel, requestPayload, false);
+            AiRawResult result = executeWithRetry(normalizedPrimaryModel, requestPayload, false);
+            long totalDurationMs = System.currentTimeMillis() - overallStartTime;
+            log.info("Gemini AI provider finished recommendation generation in {}ms with model '{}'",
+                    totalDurationMs, result.model());
+            return result;
         } catch (TransientFailureException primaryTransientEx) {
             if (isReliableFallbackConfigured(normalizedPrimaryModel)) {
                 String normalizedFallbackModel = normalizeModelName(this.fallbackModel);
@@ -261,7 +269,11 @@ public class GeminiAiProvider implements AiProvider {
                 );
 
                 try {
-                    return executeWithRetry(normalizedFallbackModel, requestPayload, true);
+                    AiRawResult fallbackResult = executeWithRetry(normalizedFallbackModel, requestPayload, true);
+                    long totalDurationMs = System.currentTimeMillis() - overallStartTime;
+                    log.info("Gemini fallback model '{}' finished recommendation generation in {}ms",
+                            fallbackResult.model(), totalDurationMs);
+                    return fallbackResult;
                 } catch (TransientFailureException fallbackTransientEx) {
                     log.error(
                             "Fallback Gemini model '{}' also failed after {} retries: HTTP {} - {}",
@@ -308,6 +320,8 @@ public class GeminiAiProvider implements AiProvider {
 
         for (int attempt = 0; attempt < totalAttempts; attempt++) {
             boolean isLastAttempt = (attempt == totalAttempts - 1);
+            final int currentAttempt = attempt;
+            final long attemptStartTime = System.currentTimeMillis();
 
             try {
                 log.info(
@@ -318,51 +332,165 @@ public class GeminiAiProvider implements AiProvider {
                         isFallback
                 );
 
-                String responseBody = restClient.post()
+                AiRawResult result = restClient.post()
                         .uri(endpointUri)
                         .header("x-goog-api-key", apiKey)
                         .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON, MediaType.ALL)
                         .body(requestPayload)
-                        .retrieve()
-                        .body(String.class);
+                        .exchange((clientRequest, clientResponse) -> {
+                            int status = clientResponse.getStatusCode().value();
+                            HttpHeaders headers = clientResponse.getHeaders();
+                            byte[] responseBytes = StreamUtils.copyToByteArray(clientResponse.getBody());
+                            String responseBody = new String(responseBytes, StandardCharsets.UTF_8).trim();
 
-                if (responseBody == null || responseBody.isBlank()) {
-                    throw new AiServiceException("Received empty response body from Gemini AI provider.");
+                            // 1. Permanent authentication errors: HTTP 401, 403
+                            if (status == 401 || status == 403) {
+                                log.error("Gemini AI provider authentication failed with HTTP status {}", status);
+                                throw new AiProviderUnavailableException("AI provider authentication failed. Check server API key configuration.");
+                            }
+
+                            // 2. Transient status codes: 429, 500, 502, 503, 504
+                            if (isTransientStatus(status)) {
+                                String errorDetail = extractErrorDetail(responseBody);
+                                String statusMessage = (errorDetail != null && !errorDetail.isBlank()) ? errorDetail : clientResponse.getStatusText();
+                                long attemptDurationMs = System.currentTimeMillis() - attemptStartTime;
+
+                                log.warn(
+                                        "Gemini model '{}' returned transient HTTP status {} in {}ms on attempt {}/{}: {}",
+                                        targetModel,
+                                        status,
+                                        attemptDurationMs,
+                                        currentAttempt + 1,
+                                        totalAttempts,
+                                        statusMessage
+                                );
+
+                                if (isLastAttempt) {
+                                    throw new TransientFailureException(statusMessage, status, null);
+                                }
+
+                                Optional<Long> retryAfter = extractRetryAfterMillis(headers);
+                                long backoffMs = calculateBackoffMillis(currentAttempt, retryAfter);
+                                sleepBackoff(backoffMs, targetModel, currentAttempt, totalAttempts);
+                                return null; // Signal retry
+                            }
+
+                            // 3. Permanent client errors: HTTP 400, 404, 422, etc. (do NOT retry)
+                            if (status >= 400) {
+                                String errorDetail = extractErrorDetail(responseBody);
+                                String message;
+                                if (status == 404) {
+                                    message = "Configured Gemini model '" + targetModel + "' was not found (HTTP 404)"
+                                            + (errorDetail != null ? ": " + errorDetail : ". Verify configured model or endpoint.");
+                                } else {
+                                    message = "AI provider returned HTTP status " + status + (errorDetail != null ? ": " + errorDetail : "");
+                                }
+                                log.error("Gemini AI provider returned permanent error HTTP status {}: {}", status, errorDetail);
+                                throw new AiServiceException(message);
+                            }
+
+                            // 4. Successful 2xx response
+                            if (responseBody.isBlank()) {
+                                throw new AiServiceException("Received empty response body from Gemini AI provider.");
+                            }
+
+                            JsonNode rootNode;
+                            try {
+                                rootNode = objectMapper.readTree(responseBody);
+                            } catch (Exception parseEx) {
+                                log.error(
+                                        "Failed to parse Gemini response as JSON for model '{}': {}",
+                                        targetModel,
+                                        responseBody.length() > 200 ? responseBody.substring(0, 200) + "..." : responseBody
+                                );
+                                throw new AiServiceException("Malformed response from Gemini AI provider: unable to parse response JSON.", parseEx);
+                            }
+
+                            // Check for error payload returned within 200 response
+                            if (rootNode.has("error")) {
+                                JsonNode errorNode = rootNode.get("error");
+                                int errorCode = errorNode.path("code").asInt(0);
+                                String errorMessage = errorNode.path("message").asText("Unknown Gemini error");
+                                String errorStatus = errorNode.path("status").asText("");
+
+                                log.error(
+                                        "Gemini model '{}' returned error payload (code={}, status={}): {}",
+                                        targetModel,
+                                        errorCode,
+                                        errorStatus,
+                                        errorMessage
+                                );
+
+                                if (errorCode == 401 || errorCode == 403
+                                        || "UNAUTHENTICATED".equalsIgnoreCase(errorStatus)
+                                        || "PERMISSION_DENIED".equalsIgnoreCase(errorStatus)) {
+                                    throw new AiProviderUnavailableException("AI provider authentication failed. Check server API key configuration.");
+                                }
+                                if (errorCode == 429 || "RESOURCE_EXHAUSTED".equalsIgnoreCase(errorStatus)) {
+                                    if (isLastAttempt) {
+                                        throw new TransientFailureException("Gemini quota or rate limit exceeded: " + errorMessage, 429, null);
+                                    }
+                                    long backoffMs = calculateBackoffMillis(currentAttempt, Optional.empty());
+                                    sleepBackoff(backoffMs, targetModel, currentAttempt, totalAttempts);
+                                    return null; // Signal retry
+                                }
+                                if (errorCode == 404 || "NOT_FOUND".equalsIgnoreCase(errorStatus)) {
+                                    throw new AiServiceException("Configured Gemini model '" + targetModel + "' was not found or is unsupported by the API endpoint: " + errorMessage);
+                                }
+                                if (isTransientStatus(errorCode)) {
+                                    if (isLastAttempt) {
+                                        throw new TransientFailureException(errorMessage, errorCode, null);
+                                    }
+                                    long backoffMs = calculateBackoffMillis(currentAttempt, Optional.empty());
+                                    sleepBackoff(backoffMs, targetModel, currentAttempt, totalAttempts);
+                                    return null; // Signal retry
+                                }
+                                throw new AiServiceException("Gemini AI provider returned error: " + errorMessage);
+                            }
+
+                            JsonNode candidatesNode = rootNode.path("candidates");
+                            if (!candidatesNode.isArray() || candidatesNode.isEmpty()) {
+                                String blockReason = rootNode.path("promptFeedback").path("blockReason").asText(null);
+                                if (blockReason != null && !blockReason.isBlank()) {
+                                    throw new AiServiceException("Gemini generation was blocked by safety filters: " + blockReason);
+                                }
+                                throw new AiServiceException("Malformed AI response: 'candidates' array is missing or empty.");
+                            }
+
+                            JsonNode firstCandidate = candidatesNode.get(0);
+                            String finishReason = firstCandidate.path("finishReason").asText("");
+                            if ("SAFETY".equalsIgnoreCase(finishReason)) {
+                                throw new AiServiceException("Gemini response was blocked by content safety policies.");
+                            }
+
+                            JsonNode partsNode = firstCandidate.path("content").path("parts");
+                            if (!partsNode.isArray() || partsNode.isEmpty()) {
+                                throw new AiServiceException("Gemini response candidate contains no content parts.");
+                            }
+
+                            String content = partsNode.get(0).path("text").asText(null);
+                            if (content == null || content.isBlank()) {
+                                throw new AiServiceException("Gemini returned empty text content in response candidate.");
+                            }
+
+                            String resolvedModel = rootNode.path("modelVersion").asText(targetModel);
+                            long attemptDurationMs = System.currentTimeMillis() - attemptStartTime;
+                            log.info("Gemini model '{}' attempt {}/{} completed successfully in {}ms (modelVersion='{}')",
+                                    targetModel, currentAttempt + 1, totalAttempts, attemptDurationMs, resolvedModel);
+                            return new AiRawResult("gemini", resolvedModel, content);
+                        });
+
+                if (result != null) {
+                    return result;
                 }
-
-                JsonNode rootNode = objectMapper.readTree(responseBody);
-                JsonNode candidatesNode = rootNode.path("candidates");
-                if (!candidatesNode.isArray() || candidatesNode.isEmpty()) {
-                    String blockReason = rootNode.path("promptFeedback").path("blockReason").asText(null);
-                    if (blockReason != null && !blockReason.isBlank()) {
-                        throw new AiServiceException("Gemini generation was blocked by safety filters: " + blockReason);
-                    }
-                    throw new AiServiceException("Malformed AI response: 'candidates' array is missing or empty.");
-                }
-
-                JsonNode firstCandidate = candidatesNode.get(0);
-                String finishReason = firstCandidate.path("finishReason").asText("");
-                if ("SAFETY".equalsIgnoreCase(finishReason)) {
-                    throw new AiServiceException("Gemini response was blocked by content safety policies.");
-                }
-
-                JsonNode partsNode = firstCandidate.path("content").path("parts");
-                if (!partsNode.isArray() || partsNode.isEmpty()) {
-                    throw new AiServiceException("Gemini response candidate contains no content parts.");
-                }
-
-                String content = partsNode.get(0).path("text").asText(null);
-                if (content == null || content.isBlank()) {
-                    throw new AiServiceException("Gemini returned empty text content in response candidate.");
-                }
-
-                String resolvedModel = rootNode.path("modelVersion").asText(targetModel);
-                return new AiRawResult("gemini", resolvedModel, content);
 
             } catch (ResourceAccessException ex) {
+                long attemptDurationMs = System.currentTimeMillis() - attemptStartTime;
                 log.warn(
-                        "Gemini model '{}' connection/read timed out on attempt {}/{}",
+                        "Gemini model '{}' connection/read timed out in {}ms on attempt {}/{}",
                         targetModel,
+                        attemptDurationMs,
                         attempt + 1,
                         totalAttempts
                 );
@@ -374,49 +502,27 @@ public class GeminiAiProvider implements AiProvider {
                 long backoffMs = calculateBackoffMillis(attempt, Optional.empty());
                 sleepBackoff(backoffMs, targetModel, attempt, totalAttempts);
 
-            } catch (RestClientResponseException ex) {
-                int status = ex.getStatusCode().value();
-
-                // 1. Permanent authentication errors: HTTP 401, 403
-                if (status == 401 || status == 403) {
-                    log.error("Gemini AI provider authentication failed with HTTP status {}", status);
-                    throw new AiProviderUnavailableException("AI provider authentication failed. Check server API key configuration.");
+            } catch (TransientFailureException ex) {
+                if (isLastAttempt) {
+                    throw ex;
                 }
-
-                // 2. Transient status codes: 429, 500, 502, 503, 504
-                if (isTransientStatus(status)) {
-                    String errorDetail = extractErrorDetail(ex.getResponseBodyAsString());
-                    String statusMessage = errorDetail != null ? errorDetail : ex.getStatusText();
-
-                    log.warn(
-                            "Gemini model '{}' returned transient HTTP status {} on attempt {}/{}: {}",
-                            targetModel,
-                            status,
-                            attempt + 1,
-                            totalAttempts,
-                            statusMessage
-                    );
-
-                    if (isLastAttempt) {
-                        throw new TransientFailureException(statusMessage, status, ex);
-                    }
-
-                    Optional<Long> retryAfter = extractRetryAfterMillis(ex);
-                    long backoffMs = calculateBackoffMillis(attempt, retryAfter);
-                    sleepBackoff(backoffMs, targetModel, attempt, totalAttempts);
-
-                } else {
-                    // 3. Permanent client errors: HTTP 400, 404, 422, etc. (do NOT retry)
-                    String errorDetail = extractErrorDetail(ex.getResponseBodyAsString());
-                    String message = "AI provider returned HTTP status " + status + (errorDetail != null ? ": " + errorDetail : "");
-                    log.error("Gemini AI provider returned permanent error HTTP status {}: {}", status, errorDetail);
-                    throw new AiServiceException(message, ex);
-                }
-
             } catch (AiProviderUnavailableException | AiServiceException ex) {
                 // Do not retry application logic or safety block exceptions
                 throw ex;
             } catch (Exception ex) {
+                Throwable cause = ex.getCause();
+                if (cause instanceof TransientFailureException tfe) {
+                    if (isLastAttempt) {
+                        throw tfe;
+                    }
+                    continue;
+                }
+                if (cause instanceof AiProviderUnavailableException apue) {
+                    throw apue;
+                }
+                if (cause instanceof AiServiceException ase) {
+                    throw ase;
+                }
                 log.error("Unexpected error communicating with Gemini AI provider: {}", ex.getMessage());
                 throw new AiServiceException("Failed to generate AI recommendations: " + ex.getMessage(), ex);
             }
@@ -445,8 +551,7 @@ public class GeminiAiProvider implements AiProvider {
         return trimmed.startsWith("models/") ? trimmed.substring("models/".length()) : trimmed;
     }
 
-    private Optional<Long> extractRetryAfterMillis(RestClientResponseException ex) {
-        HttpHeaders headers = ex.getResponseHeaders();
+    Optional<Long> extractRetryAfterMillis(HttpHeaders headers) {
         if (headers == null) {
             return Optional.empty();
         }
@@ -479,6 +584,10 @@ public class GeminiAiProvider implements AiProvider {
         }
 
         return Optional.empty();
+    }
+
+    Optional<Long> extractRetryAfterMillis(RestClientResponseException ex) {
+        return ex != null ? extractRetryAfterMillis(ex.getResponseHeaders()) : Optional.empty();
     }
 
     long calculateBackoffMillis(int retryAttempt, Optional<Long> retryAfterMillis) {
@@ -527,13 +636,19 @@ public class GeminiAiProvider implements AiProvider {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
             String message = root.path("error").path("message").asText(null);
-            return (message != null && !message.isBlank()) ? message : null;
+            if (message != null && !message.isBlank()) {
+                return message;
+            }
         } catch (Exception ignored) {
-            return null;
         }
+        String trimmed = responseBody.trim();
+        if (!trimmed.isEmpty() && !trimmed.startsWith("<")) {
+            return trimmed.length() > 200 ? trimmed.substring(0, 200) + "..." : trimmed;
+        }
+        return null;
     }
 
-    private static class TransientFailureException extends Exception {
+    private static class TransientFailureException extends RuntimeException {
         private final int statusCode;
 
         TransientFailureException(String message, int statusCode, Throwable cause) {

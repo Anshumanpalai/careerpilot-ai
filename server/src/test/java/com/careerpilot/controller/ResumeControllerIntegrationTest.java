@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -314,5 +315,65 @@ class ResumeControllerIntegrationTest {
     void shouldRejectUnauthenticatedAccess() throws Exception {
         mockMvc.perform(get("/api/v1/resumes"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ------------------------------------------------------------------ //
+    //  RENAME TESTS                                                        //
+    // ------------------------------------------------------------------ //
+
+    @Test
+    @DisplayName("PATCH /api/v1/resumes/{id}/rename should update the filename and return 200")
+    void shouldRenameResume() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "old_name.pdf", "application/pdf", VALID_PDF_BYTES);
+        mockMvc.perform(multipart("/api/v1/resumes").file(file)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA));
+
+        Resume resume = resumeRepository.findByUserIdOrderByCreatedAtDesc(userA.getId()).get(0);
+
+        mockMvc.perform(patch("/api/v1/resumes/" + resume.getId() + "/rename")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"filename\":\"my_updated_resume.pdf\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.originalFilename").value("my_updated_resume.pdf"));
+
+        Resume updated = resumeRepository.findById(resume.getId()).orElseThrow();
+        assertThat(updated.getOriginalFilename()).isEqualTo("my_updated_resume.pdf");
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/resumes/{id}/rename should return 400 for blank filename")
+    void shouldRejectBlankFilenameOnRename() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "resume.pdf", "application/pdf", VALID_PDF_BYTES);
+        mockMvc.perform(multipart("/api/v1/resumes").file(file)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA));
+
+        Resume resume = resumeRepository.findByUserIdOrderByCreatedAtDesc(userA.getId()).get(0);
+
+        mockMvc.perform(patch("/api/v1/resumes/" + resume.getId() + "/rename")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"filename\":\"\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/resumes/{id}/rename should deny cross-user access (returns 404)")
+    void shouldDenyCrossUserRename() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "resume.pdf", "application/pdf", VALID_PDF_BYTES);
+        mockMvc.perform(multipart("/api/v1/resumes").file(file)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenA));
+
+        Resume resume = resumeRepository.findByUserIdOrderByCreatedAtDesc(userA.getId()).get(0);
+
+        mockMvc.perform(patch("/api/v1/resumes/" + resume.getId() + "/rename")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenB)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"filename\":\"attacker_rename.pdf\"}"))
+                .andExpect(status().isNotFound());
+
+        // Verify the original filename is unchanged
+        assertThat(resumeRepository.findById(resume.getId()).orElseThrow().getOriginalFilename())
+                .isEqualTo("resume.pdf");
     }
 }

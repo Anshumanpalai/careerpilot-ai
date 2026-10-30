@@ -1,11 +1,18 @@
-import { apiClient } from "@/lib/api-client";
+import { apiClient, RequestOptions } from "@/lib/api-client";
 import { ResumeMetric } from "@/types/applications.types";
 import {
+  ApplyAiSuggestionRequest,
+  CreateResumeVersionRequest,
+  DuplicateResumeVersionRequest,
   ResumeAnalysis,
   ResumeImprovementRequest,
   ResumeImprovementResponse,
   ResumeMatchResponse,
   ResumeRecord,
+  ResumeVersion,
+  ResumeVersionComparison,
+  RestoreResumeVersionRequest,
+  UpdateResumeVersionRequest,
 } from "@/types/resume.types";
 import { SAMPLE_RESUME_METRICS } from "@/sample-data/applications.mock";
 
@@ -16,8 +23,10 @@ class ResumeService {
     return await apiClient.uploadMultipart<ResumeRecord>("/resumes", formData);
   }
 
-  public async listResumes(): Promise<ResumeRecord[]> {
-    return await apiClient.get<ResumeRecord[]>("/resumes");
+  public async listResumes(options?: { signal?: AbortSignal }): Promise<ResumeRecord[]> {
+    return await apiClient.get<ResumeRecord[]>("/resumes", {
+      signal: options?.signal,
+    });
   }
 
   public async getResume(id: string): Promise<ResumeRecord> {
@@ -42,6 +51,10 @@ class ResumeService {
     await apiClient.delete<void>(`/resumes/${id}`);
   }
 
+  public async renameResume(id: string, filename: string): Promise<ResumeRecord> {
+    return await apiClient.patch<ResumeRecord>(`/resumes/${id}/rename`, { filename });
+  }
+
   public async parseResume(id: string): Promise<ResumeAnalysis> {
     return await apiClient.post<ResumeAnalysis>(`/resumes/${id}/parse`);
   }
@@ -56,9 +69,14 @@ class ResumeService {
 
   public async improveResume(
     resumeId: string,
-    request: ResumeImprovementRequest
+    request: ResumeImprovementRequest,
+    options?: RequestOptions
   ): Promise<ResumeImprovementResponse> {
-    return await apiClient.post<ResumeImprovementResponse>(`/resumes/${resumeId}/improve`, request);
+    return await apiClient.post<ResumeImprovementResponse>(
+      `/resumes/${resumeId}/improve`,
+      request,
+      { timeoutMs: 60000, ...options }
+    );
   }
 
   public async getLatestImprovement(resumeId: string): Promise<ResumeImprovementResponse | null> {
@@ -93,6 +111,99 @@ class ResumeService {
         ],
       };
     }
+  }
+
+  // Phase 6: Resume Versioning & ATS PDF Export
+  public async listVersions(resumeId: string): Promise<ResumeVersion[]> {
+    return await apiClient.get<ResumeVersion[]>(`/resumes/${resumeId}/versions`);
+  }
+
+  public async getVersion(resumeId: string, versionId: string): Promise<ResumeVersion> {
+    return await apiClient.get<ResumeVersion>(`/resumes/${resumeId}/versions/${versionId}`);
+  }
+
+  public async createVersion(
+    resumeId: string,
+    request: CreateResumeVersionRequest
+  ): Promise<ResumeVersion> {
+    return await apiClient.post<ResumeVersion>(`/resumes/${resumeId}/versions`, request);
+  }
+
+  public async updateVersion(
+    resumeId: string,
+    versionId: string,
+    request: UpdateResumeVersionRequest
+  ): Promise<ResumeVersion> {
+    return await apiClient.put<ResumeVersion>(`/resumes/${resumeId}/versions/${versionId}`, request);
+  }
+
+  public async duplicateVersion(
+    resumeId: string,
+    versionId: string,
+    request?: DuplicateResumeVersionRequest
+  ): Promise<ResumeVersion> {
+    return await apiClient.post<ResumeVersion>(
+      `/resumes/${resumeId}/versions/${versionId}/duplicate`,
+      request || {}
+    );
+  }
+
+  public async restoreVersion(
+    resumeId: string,
+    versionId: string,
+    request?: RestoreResumeVersionRequest
+  ): Promise<ResumeVersion> {
+    return await apiClient.post<ResumeVersion>(
+      `/resumes/${resumeId}/versions/${versionId}/restore`,
+      request || {}
+    );
+  }
+
+  public async deleteVersion(resumeId: string, versionId: string): Promise<void> {
+    await apiClient.delete<void>(`/resumes/${resumeId}/versions/${versionId}`);
+  }
+
+  public async compareVersions(
+    resumeId: string,
+    sourceId: string,
+    targetId: string
+  ): Promise<ResumeVersionComparison> {
+    return await apiClient.get<ResumeVersionComparison>(
+      `/resumes/${resumeId}/versions/compare?source=${encodeURIComponent(
+        sourceId
+      )}&target=${encodeURIComponent(targetId)}`
+    );
+  }
+
+  public async applyAiSuggestion(
+    resumeId: string,
+    versionId: string,
+    request: ApplyAiSuggestionRequest
+  ): Promise<ResumeVersion> {
+    return await apiClient.post<ResumeVersion>(
+      `/resumes/${resumeId}/versions/${versionId}/apply-suggestion`,
+      request
+    );
+  }
+
+  public async exportVersionPdf(
+    resumeId: string,
+    versionId: string,
+    suggestedFilename?: string
+  ): Promise<void> {
+    const { blob, filename } = await apiClient.downloadBlob(
+      `/resumes/${resumeId}/versions/${versionId}/export-pdf`
+    );
+    const resolvedFilename = suggestedFilename || filename || "Resume_ATS.pdf";
+
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = resolvedFilename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(objectUrl);
   }
 }
 
@@ -274,6 +385,15 @@ export function formatImprovementErrorMessage(err: unknown): string {
   };
 
   const cleanMessage = sanitize(rawMessage);
+
+  // HTTP 408 / Timeout: Request Timeout
+  if (
+    status === 408 ||
+    rawMessage.toLowerCase().includes("timed out") ||
+    rawMessage.toLowerCase().includes("timeout")
+  ) {
+    return "The AI request timed out. Generating recommendations took longer than expected. Please try again.";
+  }
 
   // HTTP 429: Rate limit exceeded
   if (status === 429) {

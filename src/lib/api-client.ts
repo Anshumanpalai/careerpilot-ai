@@ -5,6 +5,7 @@ const TOKEN_KEY = "careerpilot_auth_token";
 
 export interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
+  timeoutMs?: number;
 }
 
 export class ApiClient {
@@ -83,24 +84,44 @@ export class ApiClient {
   }
 
   public async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-    const url = this.buildUrl(endpoint, options.params);
+    const { params, timeoutMs, ...fetchOptions } = options;
+    const url = this.buildUrl(endpoint, params);
     const token = this.getToken();
 
-    const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+    const isFormData = typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
     const headers: Record<string, string> = {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
       "Accept": "application/json",
-      ...(options.headers as Record<string, string> || {}),
+      ...((fetchOptions.headers as Record<string, string>) || {}),
     };
 
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
+    const controller = new AbortController();
+    const externalSignal = fetchOptions.signal;
+
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort(externalSignal.reason);
+      } else {
+        externalSignal.addEventListener("abort", () => controller.abort(externalSignal.reason), { once: true });
+      }
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    if (timeoutMs && timeoutMs > 0) {
+      timeoutId = setTimeout(() => {
+        controller.abort(new Error(`Request timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    }
+
     try {
       const response = await fetch(url, {
-        ...options,
+        ...fetchOptions,
         headers,
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -138,12 +159,22 @@ export class ApiClient {
       if ((err as ApiError).statusCode !== undefined) {
         throw err;
       }
+      if (err instanceof Error && (err.name === "AbortError" || err.message.includes("timed out"))) {
+        throw new ApiError(
+          "Request timed out. The server or AI service took longer than expected to respond. Please try again.",
+          408
+        );
+      }
       // Network error or backend not yet reached
       const networkError = new ApiError(
         err instanceof Error ? err.message : "Failed to communicate with API server",
         0
       );
       throw networkError;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 

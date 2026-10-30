@@ -6,6 +6,7 @@ import { resumeService, formatImprovementErrorMessage } from "@/services/resume.
 import { ResumeImprovementResponse, ResumeRecord } from "@/types/resume.types";
 import {
   Sparkles,
+  Loader2,
   CheckCircle,
   AlertCircle,
   Copy,
@@ -103,6 +104,9 @@ export const AiResumeStudio: React.FC<AiResumeStudioProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isImproving) {
+      return;
+    }
     setError(null);
 
     if (!targetResumeId) {
@@ -152,7 +156,11 @@ export const AiResumeStudio: React.FC<AiResumeStudioProps> = ({
     }
   };
 
-  const is503Error = error?.includes("disabled or unconfigured") || error?.includes("AI_ENABLED=false");
+  const is503Error =
+    error?.toLowerCase().includes("disabled") ||
+    error?.includes("AI_ENABLED") ||
+    error?.toLowerCase().includes("unconfigured") ||
+    error?.toLowerCase().includes("offline");
 
   return (
     <Card className="border-indigo-500/40 shadow-sm overflow-hidden">
@@ -166,11 +174,8 @@ export const AiResumeStudio: React.FC<AiResumeStudioProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <CardTitle className="text-base font-bold">
-                  AI-Powered Resume Improvement & Recommendations
+                  AI-Powered Resume Tailoring & Recommendations
                 </CardTitle>
-                <Badge variant="purple" className="text-[10px] tracking-wide uppercase">
-                  Phase 5 AI
-                </Badge>
               </div>
               <CardDescription className="text-xs mt-0.5">
                 Generate truthful summary rewrites, bullet point optimizations with evidence prompts, verified skills, and an actionable learning roadmap.
@@ -358,29 +363,29 @@ export const AiResumeStudio: React.FC<AiResumeStudioProps> = ({
               }
               className="px-6 gap-2 text-xs h-10 shadow-md font-semibold"
             >
-              <Sparkles className="h-4 w-4" />
-              <span>Generate AI Recommendations</span>
+              {!isImproving && <Sparkles className="h-4 w-4" />}
+              <span>{isImproving ? "Generating recommendations..." : "Generate AI Recommendations"}</span>
             </Button>
           </div>
         </form>
 
-        {/* Loading State with Progress Steps */}
+        {/* Loading State with Informative Guidance */}
         {isImproving && (
-          <div className="rounded-xl border border-indigo-500/40 bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent p-6 text-center space-y-4 animate-pulse">
-            <div className="inline-flex rounded-full bg-primary/20 p-3 text-primary animate-spin">
-              <Sparkles className="h-6 w-6" />
+          <div className="rounded-xl border border-indigo-500/40 bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent p-6 text-center space-y-4">
+            <div className="inline-flex rounded-full bg-indigo-500/10 p-3 text-indigo-600 dark:text-indigo-400">
+              <Loader2 className="h-6 w-6 animate-spin" />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <h4 className="text-sm font-bold text-foreground">
-                Analyzing Career Fit & Synthesizing Recommendations...
+                Generating recommendations...
               </h4>
-              <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                Comparing your evidenced qualifications against job requirements, drafting action-oriented bullet point rewrites, and structuring your learning roadmap.
+              <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
+                Analyzing qualifications, drafting tailored bullet point rewrites, and structuring your learning roadmap with Gemini AI.
               </p>
             </div>
-            <div className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground font-medium pt-2">
+            <div className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground font-medium pt-1">
               <span className="inline-block h-2 w-2 rounded-full bg-indigo-500 animate-ping" />
-              <span>Waiting for secure AI provider response (usually 5-15 seconds)...</span>
+              <span>Waiting for secure AI provider response (typically 5–15 seconds)...</span>
             </div>
           </div>
         )}
@@ -402,7 +407,7 @@ export const AiResumeStudio: React.FC<AiResumeStudioProps> = ({
                       Administrator Configuration Note:
                     </p>
                     <p>
-                      To enable AI recommendations, set <code className="px-1 py-0.5 rounded bg-muted font-mono">AI_ENABLED=true</code> and provide a <code className="px-1 py-0.5 rounded bg-muted font-mono">GEMINI_API_KEY</code> (or <code className="px-1 py-0.5 rounded bg-muted font-mono">AI_API_KEY</code>) in the backend environment. Local parsing and deterministic ATS matching remain 100% operational.
+                      To enable AI recommendations, set <code className="px-1 py-0.5 rounded bg-muted font-mono">AI_ENABLED=true</code> and provide a <code className="px-1 py-0.5 rounded bg-muted font-mono">GEMINI_API_KEY</code> (or <code className="px-1 py-0.5 rounded bg-muted font-mono">AI_API_KEY</code>) in the backend environment. Local parsing and ATS keyword scanning remain 100% operational.
                     </p>
                   </div>
                 )}

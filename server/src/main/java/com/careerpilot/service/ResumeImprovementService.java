@@ -91,8 +91,12 @@ public class ResumeImprovementService {
         String safeJobDescription = request.jobDescription().trim();
         String targetRole = request.targetRole() != null ? request.targetRole().trim() : null;
 
-        // 6. Invoke AI Provider
+        // 6. Invoke AI Provider with safe execution timing
+        long aiStartTime = System.currentTimeMillis();
         AiRawResult rawResult = aiProvider.generateImprovement(safeResumeText, safeJobDescription, targetRole);
+        long aiDurationMs = System.currentTimeMillis() - aiStartTime;
+        log.info("AI provider '{}' (model='{}') completed recommendations in {}ms for resume {}",
+                rawResult.provider(), rawResult.model(), aiDurationMs, resumeId);
 
         // 7. Parse and validate structured output
         ParsedAiOutput parsedOutput = parseAndValidateOutput(rawResult.content());
