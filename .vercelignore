@@ -1,6 +1,9 @@
 # Ignore backend files from Vercel deployment
 server/
 docker-compose.yml
+Dockerfile
+*.Dockerfile
+railway.json
 
 # Storage & logs
 storage/
