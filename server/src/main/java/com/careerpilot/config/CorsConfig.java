@@ -38,7 +38,8 @@ public class CorsConfig {
                 .filter(origin -> !origin.isEmpty())
                 .toList();
 
-        config.setAllowedOrigins(origins);
+        // Use setAllowedOriginPatterns to support both wildcard "*" and specific domains with allowCredentials: true
+        config.setAllowedOriginPatterns(origins);
         config.setAllowedMethods(Arrays.stream(allowedMethods.split(",")).map(String::trim).toList());
         config.setAllowedHeaders(Arrays.stream(allowedHeaders.split(",")).map(String::trim).toList());
         config.setAllowCredentials(allowCredentials);
