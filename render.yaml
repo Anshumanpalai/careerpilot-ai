@@ -7,7 +7,7 @@ services:
     rootDir: server
     dockerfilePath: Dockerfile
     dockerContext: .
-    healthCheckPath: /actuator/health
+    healthCheckPath: /api/v1/health
     envVars:
       - key: DATABASE_URL
         fromDatabase:
