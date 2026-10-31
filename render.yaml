@@ -27,7 +27,5 @@ services:
 databases:
   - name: careerpilot-db
     databaseName: careerpilot_db
-    databaseUser: postgres
     plan: free
     region: oregon
-    postgresMajorVersion: "16"
