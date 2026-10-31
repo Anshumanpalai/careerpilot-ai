@@ -2,9 +2,11 @@ services:
   - type: web
     name: careerpilot-backend
     runtime: docker
-    dockerfilePath: ./server/Dockerfile
-    dockerContext: ./server
+    region: oregon
     plan: free
+    rootDir: server
+    dockerfilePath: Dockerfile
+    dockerContext: .
     healthCheckPath: /actuator/health
     envVars:
       - key: DATABASE_URL
@@ -12,7 +14,7 @@ services:
           name: careerpilot-db
           property: connectionString
       - key: PORT
-        value: 8080
+        value: "8080"
       - key: JWT_SECRET
         generateValue: true
       - key: AI_ENABLED
@@ -25,5 +27,7 @@ services:
 databases:
   - name: careerpilot-db
     databaseName: careerpilot_db
-    user: postgres
+    databaseUser: postgres
     plan: free
+    region: oregon
+    postgresMajorVersion: "16"
