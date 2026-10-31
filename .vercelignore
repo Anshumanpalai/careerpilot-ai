@@ -4,6 +4,7 @@ docker-compose.yml
 Dockerfile
 *.Dockerfile
 railway.json
+render.yaml
 
 # Storage & logs
 storage/
