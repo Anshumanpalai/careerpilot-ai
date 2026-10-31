@@ -26,9 +26,10 @@ USER spring:spring
 # Copy built artifact from builder stage
 COPY --from=builder --chown=spring:spring /build/target/*.jar app.jar
 
-# Railway automatically assigns $PORT and Spring Boot binds to it via server.port: ${PORT:8080}
-ENV PORT=8080
-EXPOSE 8080
+# Render requires port 10000
+ENV PORT=10000
+EXPOSE 10000
 
 # Configure JVM for container memory limits and faster startup
 ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]
+
